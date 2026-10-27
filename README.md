@@ -250,9 +250,11 @@ Project-wide guidance for AI coding assistants is in
 
 ## License and acknowledgements
 
-Code is licensed under the [MIT license](LICENSE).
-The bundled Royal Kludge product image is **not MIT-licensed**; see
-[third-party notices](THIRD_PARTY_NOTICES.md) for provenance and redistribution terms.
+Code and project artwork are licensed under the [MIT license](LICENSE).
+The keyboard image was created and supplied by the project owner; it replaces
+the previously bundled vendor image. See
+[third-party notices](THIRD_PARTY_NOTICES.md) for artwork attribution, trademarks,
+and dependency licenses.
 
 Protocol research references:
 

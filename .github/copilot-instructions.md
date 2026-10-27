@@ -45,7 +45,8 @@ tools unnecessarily. Report which checks ran and any remaining limitations.
 
 ## Licensing and privacy
 
-Code is MIT-licensed; the bundled Royal Kludge image is excluded. Preserve
+Code and project artwork, including the owner-supplied keyboard image, are
+MIT-licensed. Preserve
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) and do not assume other
 vendor assets are freely redistributable. Never include secrets, captured
 typing, personal identifiers, or private logs in commits or reports.

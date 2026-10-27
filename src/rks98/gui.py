@@ -129,7 +129,7 @@ def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
 
 
 class KeyboardImage(QLabel):
-    """The unmodified RK product image, scaled to fit without distortion."""
+    """The owner's keyboard artwork, scaled to fit without distortion."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -284,7 +284,7 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout()
         titles = QVBoxLayout()
         titles.setSpacing(5)
-        titles.addWidget(label("RK-S98", "title"))
+        titles.addWidget(label("RK-S98 Studio", "title"))
         header.addLayout(titles)
         header.addStretch()
         self.connection = label("Looking for keyboard", "connection")
