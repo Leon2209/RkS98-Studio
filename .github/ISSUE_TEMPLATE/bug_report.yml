@@ -1,0 +1,23 @@
+name: Bug report
+description: Report a reproducible problem or compatibility issue.
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Linux distribution, Python/app versions, firmware version, and connection mode.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps and expected behavior
+      description: What did you do, what happened, and what should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Footer error details or rks98 --list output. Remove personal information.
+      render: text

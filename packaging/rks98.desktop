@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=RK-S98 Studio
+Comment=Control Royal Kludge RK-S98 lighting and display
+Exec=rks98
+Icon=rks98
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=keyboard;RGB;Royal Kludge;RK-S98;
+StartupNotify=true
+StartupWMClass=rks98

@@ -1,0 +1,4 @@
+# Native release builds use Python 3.11 on Ubuntu 22.04 (glibc 2.35).
+PyInstaller==6.22.3
+PySide6==6.8.3
+hidapi==0.15.0

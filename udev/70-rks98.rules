@@ -1,0 +1,4 @@
+# RK-S98 wired HID access for the active local desktop user.
+# This VID/PID may be shared by other firmware; the app also checks the descriptor.
+ACTION=="add|change", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="01af", TAG+="uaccess"
+

@@ -1,0 +1,24 @@
+# Generated with a frozen application payload and its verified checksum.
+pkgname=rks98-studio
+pkgver=@VERSION@
+pkgrel=6
+pkgdesc='RGB lighting and display controls for the Royal Kludge RK-S98'
+arch=('x86_64')
+license=('MIT' 'LGPL-3.0-only' 'LicenseRef-Royal-Kludge-image')
+depends=(
+  'glibc>=@GLIBC@' 'gcc-libs' 'zlib' 'systemd-libs' 'libglvnd' 'dbus'
+  'fontconfig' 'freetype2' 'libx11' 'libxext' 'libxrender' 'libxcb'
+  'libxkbcommon' 'libxkbcommon-x11' 'xcb-util-cursor'
+  'xcb-util-image' 'xcb-util-keysyms' 'xcb-util-renderutil' 'xcb-util-wm'
+  'hicolor-icon-theme'
+)
+options=('!strip' '!debug')
+source=("rks98-studio-${pkgver}-payload.tar.gz")
+sha256sums=('@SHA256@')
+noextract=("${source[0]}")
+
+package() {
+  tar -xzf "${srcdir}/${source[0]}" -C "${pkgdir}"
+  find "${pkgdir}" -type d -exec chmod 755 {} +
+  find "${pkgdir}" -type f -exec chmod a+rX {} +
+}

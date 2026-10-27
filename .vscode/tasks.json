@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run RK-S98 Control",
+			"type": "shell",
+			"command": "${workspaceFolder}/.venv/bin/rks98",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}
