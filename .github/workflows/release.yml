@@ -46,8 +46,10 @@ jobs:
         run: |
           sudo apt-get install -y ./dist/*.deb
           dpkg-query -W rks98-studio
-          rks98 --help
-          rks98 --packaging-smoke-test
+          # pip also installs a development launcher earlier in this job.
+          # Test the package-owned command, not whichever launcher PATH selects.
+          /usr/bin/rks98 --help
+          /usr/bin/rks98 --packaging-smoke-test
           test -r /usr/lib/udev/rules.d/70-rks98.rules
           desktop-file-validate /usr/share/applications/rks98.desktop
           sudo apt-get remove -y rks98-studio
@@ -89,8 +91,8 @@ jobs:
           runuser -u builder -- makepkg --syncdeps --noconfirm
           cp *.pkg.tar.zst ../dist/
           pacman -U --noconfirm *.pkg.tar.zst
-          runuser -u builder -- rks98 --help
-          runuser -u builder -- rks98 --packaging-smoke-test
+          runuser -u builder -- /usr/bin/rks98 --help
+          runuser -u builder -- /usr/bin/rks98 --packaging-smoke-test
           pacman -R --noconfirm rks98-studio
           test ! -e /usr/bin/rks98
           cd ../dist

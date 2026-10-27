@@ -32,6 +32,33 @@ def wait_for_job(app, window):
     app.processEvents()
 
 
+@pytest.mark.parametrize(
+    ("accepted", "remember"), [(True, True), (True, False), (False, True), (False, False)]
+)
+def test_startup_warning_only_saves_opt_out_on_continue(
+    app, monkeypatch, tmp_path, accepted, remember
+):
+    settings = QSettings(str(tmp_path / "warning.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr(gui, "QSettings", lambda *_: settings)
+
+    def respond(dialog):
+        assert "brick" in " ".join(item.text() for item in dialog.findChildren(QLabel))
+        dialog.findChild(gui.QCheckBox).setChecked(remember)
+        return gui.QDialog.DialogCode.Accepted if accepted else gui.QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(gui.QDialog, "exec", respond)
+    assert gui.confirm_hardware_risk() is accepted
+    assert settings.value("safety/hideStartupWarning", False, type=bool) == (accepted and remember)
+
+
+def test_startup_warning_honors_saved_opt_out(app, monkeypatch, tmp_path):
+    settings = QSettings(str(tmp_path / "warning.ini"), QSettings.Format.IniFormat)
+    settings.setValue("safety/hideStartupWarning", True)
+    monkeypatch.setattr(gui, "QSettings", lambda *_: settings)
+    monkeypatch.setattr(gui.QDialog, "exec", lambda _: pytest.fail("Warning should be skipped"))
+    assert gui.confirm_hardware_risk()
+
+
 @pytest.fixture
 def backend(monkeypatch):
     class Backend:

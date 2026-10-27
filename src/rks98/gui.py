@@ -23,11 +23,14 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -126,6 +129,58 @@ def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
     widget.setWordWrap(wrap)
     widget.setTextFormat(Qt.TextFormat.PlainText)
     return widget
+
+
+def confirm_hardware_risk() -> bool:
+    settings = QSettings("rks98-control", "rks98-control")
+    key = "safety/hideStartupWarning"
+    if settings.value(key, False, type=bool):
+        return True
+    dialog = QDialog()
+    dialog.setWindowTitle("RK-S98 Studio - Hardware risk")
+    dialog.setStyleSheet(STYLE)
+    dialog.setWindowIcon(QIcon(str(files("rks98").joinpath("assets/rks98.svg"))))
+    dialog.setMinimumWidth(480)
+    layout = QVBoxLayout(dialog)
+    layout.addWidget(label("Use at your own risk", "sectionTitle"))
+    notice = label(
+        "RK-S98 Studio is experimental software that writes directly to your keyboard "
+        "using a reverse-engineered protocol.\n\n"
+        "We cannot guarantee that it will not corrupt settings, damage the keyboard, "
+        'or permanently make it unusable ("brick" it). There is no guaranteed recovery '
+        "procedure or automatic rollback.\n\n"
+        "The software is provided without warranty. To the fullest extent permitted "
+        "by applicable law, the authors and contributors accept no liability for "
+        "device damage, data loss, or other loss arising from its use.\n\n"
+        "Continue only if you understand and accept these risks.",
+        wrap=True,
+    )
+    notice.setMaximumWidth(520)
+    layout.addWidget(notice)
+    remember = QCheckBox("Don't show again")
+    layout.addWidget(remember)
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+    )
+    buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Continue")
+    buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Quit")
+    buttons.button(QDialogButtonBox.StandardButton.Cancel).setDefault(True)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    layout.addWidget(buttons)
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return False
+    if remember.isChecked():
+        settings.setValue(key, True)
+        settings.sync()
+        if settings.status() != settings.Status.NoError:
+            logger.error("Could not save startup warning preference")
+            QMessageBox.warning(
+                dialog,
+                "Preference not saved",
+                "Could not save your preference. The warning may appear next time.",
+            )
+    return True
 
 
 class KeyboardImage(QLabel):

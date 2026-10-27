@@ -107,3 +107,11 @@ def test_desktop_launcher_matches_bundle():
     assert desktop["Desktop Entry"]["Terminal"] == "false"
     assert desktop["Desktop Entry"]["StartupWMClass"] == "rks98"
     assert (ROOT / "src/rks98/assets/rks98.svg").is_file()
+
+
+def test_release_verifies_package_owned_launcher_not_pip_entrypoint():
+    workflow = (ROOT / ".github/workflows/release.yml").read_text()
+    assert "          /usr/bin/rks98 --help\n" in workflow
+    assert "          /usr/bin/rks98 --packaging-smoke-test\n" in workflow
+    assert "runuser -u builder -- /usr/bin/rks98 --packaging-smoke-test" in workflow
+    assert "\n          rks98 --" not in workflow

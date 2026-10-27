@@ -36,11 +36,13 @@ def main() -> int:
 
     from PySide6.QtWidgets import QApplication
 
-    from .gui import MainWindow
+    from .gui import MainWindow, confirm_hardware_risk
 
     app = QApplication(["rks98"])
     app.setApplicationName("rks98")
     app.setDesktopFileName("rks98")
+    if not confirm_hardware_risk():
+        return 0
     window = MainWindow()
     app.setWindowIcon(window.windowIcon())
     window.show()

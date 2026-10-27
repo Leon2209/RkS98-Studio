@@ -16,6 +16,9 @@
 
 A local desktop app built with Python, PySide6/Qt 6, and HIDAPI.
 No browser, account, or server required.
+On first launch, a hardware-risk and no-warranty dialog appears before device
+discovery. Choose **Continue** to open the app or **Quit** to exit.
+**Don't show again** saves your preference locally only when you continue.
 
 > **Experimental, independent software.** Tested on one wired RK-S98 with
 > firmware `2117`. Other firmware revisions may behave differently. This is
