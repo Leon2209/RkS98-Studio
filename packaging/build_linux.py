@@ -129,6 +129,8 @@ def build(dpkg_deb: str = "dpkg-deb") -> None:
             "shiboken6",
             "--copy-metadata",
             "hidapi",
+            "--copy-metadata",
+            "rks98-control",
             "--distpath",
             str(payload / "opt"),
             "--workpath",

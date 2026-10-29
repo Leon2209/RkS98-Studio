@@ -11,7 +11,8 @@ if sys.argv[1:] == ["--packaging-smoke-test"]:
     window = MainWindow()
     assert not window.preview.image.isNull()
     assert not window.windowIcon().pixmap(64, 64).isNull()
-    print("Bundled Qt widgets, application icon and keyboard image: OK")
+    assert window.application_version.text().startswith("Version ")
+    print("Bundled Qt widgets, application version, icon and keyboard image: OK")
     # Do not run the event loop: queued discovery must not touch real hardware.
     raise SystemExit(0)
 

@@ -76,11 +76,61 @@ This query does not flash firmware.
 
 ## Clock
 
-The `0b` command has an 11-byte payload: three reserved bytes, little-endian
-year, month, day, hour, minute, second, and Sunday-based weekday. This follows
-the [community clock documentation](https://github.com/nai-tro/rk-s98-mac-time-sync),
+The app's `0b` clock command has an 11-byte payload: three zero bytes,
+little-endian year, month, day, hour, minute, second, and Sunday-based weekday.
+This follows the
+[community clock documentation](https://github.com/nai-tro/rk-s98-mac-time-sync),
 adapted to descriptor-matched report 9 rather than that project's report ID.
 No automatic clock readback has been verified.
+
+### Volume feedback
+
+Command `0b` also supports a 14-byte screen-status payload containing volume
+and local date/time. For report ID 9 and profile 0:
+
+```text
+09 0b 00 00 01 00 0e 00
+VV 00 00 YL YH MM DD hh mm ss ww 00 00 00
+```
+
+The remainder of the 520-byte report is zero padding.
+
+| Payload offset | Field |
+| --- | --- |
+| 0 | Integer volume percentage, 0-100 (`25` hex means 37%) |
+| 1-2 | CPU usage and memory load can be sent, but are not used by the RK-S98 |
+| 3-4 | Little-endian year |
+| 5-9 | Month, day, hour, minute, second |
+| 10 | Sunday-based weekday (0-6) |
+| 11-13 | Zero |
+
+Volume feedback includes current local time. No volume-only short packet,
+"preserve clock" sentinel, separate mute encoding, or status readback has been
+verified.
+
+On firmware `2117`, a single packet with volume 65% visibly set the keyboard
+indicator to 65%. Profile 0 readback remained unchanged and desktop volume
+remained 65%. Other volume values, the clock's physical result for this form,
+mute behavior, and persistence have not been tested.
+
+The legacy 11-byte clock packet sends zero in the volume field; whether that
+resets the displayed volume has not been tested. Manual clock sync uses the
+14-byte form when desktop volume is available. Automatic volume
+feedback is enabled by default and can be disabled in Settings. While enabled
+and the app is open, connection triggers an initial volume/time
+write, and PulseAudio/PipeWire events trigger subsequent updates. Lighting
+discovery and refresh remain read-only; the separate volume synchronization
+operation writes status, not lighting configuration. Updates wait for other
+USB operations and coalesce to the latest volume. Transfer failures are
+reported without automatic retries.
+
+An optional, default-off user service can continue volume/time synchronization
+after the app closes and at graphical login. A process lock pauses service
+USB operations for the entire foreground app session, preventing overlapping
+app/service transfers. The service requests fresh audio state after handoff or
+keyboard reconnection. Its five-second discovery/ownership check does not poll
+volume; volume changes still come from OS audio events. Transfer errors stop
+the service without retrying the write or automatically restarting.
 
 ## Display images
 
@@ -120,6 +170,8 @@ a positive timeout. Upload speed measured around 13 seconds per frame.
 - Static custom `RGB(0,132,255)` was visibly confirmed; saved local history
   restored the app's selected color afterward. This is not hardware readback.
 - Clock sync visibly updated local date/time.
+- A single 14-byte `0b` volume/time packet set the volume indicator to 65%,
+  user-confirmed on firmware `2117`; profile 0 readback remained unchanged.
 - Firmware `2117` matched RK's web tool.
 - A still-image transfer completed with all 215 chunks acknowledged.
   GIF playback has not yet been physically verified.

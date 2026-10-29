@@ -15,6 +15,7 @@ from rks98.protocol import (
     packet,
     response_payload,
     update_lighting,
+    volume_packet,
 )
 
 
@@ -37,6 +38,22 @@ def test_packet_exact_wire_layout():
     assert data[:8] == bytes((9, 0x0A, 0, 1, 1, 0, 164, 1))
     assert data[8:428] == bytes([42]) * 420
     assert data[428:] == bytes(92)
+
+
+@pytest.mark.parametrize("volume", [0, 1, 37, 65, 99, 100])
+def test_volume_packet_exact_layout(volume):
+    now = datetime(2026, 10, 29, 16, 29, 0)
+    report = volume_packet(volume, now)
+    assert len(report) == 520
+    assert report[:8] == bytes.fromhex("09 0b 00 00 01 00 0e 00")
+    assert report[8:22] == bytes((volume, 0, 0, 0xEA, 7, 10, 29, 16, 29, 0, 4, 0, 0, 0))
+    assert report[22:] == bytes(498)
+
+
+@pytest.mark.parametrize("volume", [-1, 101, 65.0, True, "65", None])
+def test_volume_packet_rejects_invalid_values(volume):
+    with pytest.raises(ProtocolError):
+        volume_packet(volume, datetime.now())
 
 
 @pytest.mark.parametrize(

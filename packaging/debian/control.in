@@ -5,7 +5,7 @@ Priority: optional
 Architecture: amd64
 Maintainer: RK-S98 Studio contributors
 Installed-Size: @SIZE@
-Depends: libc6 (>= @GLIBC@), libgcc-s1, libstdc++6, zlib1g, libudev1, libgl1, libegl1, libdbus-1-3, libfontconfig1, libfreetype6, libx11-6, libxext6, libxrender1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libxcb-cursor0, libxcb-image0, libxcb-keysyms1, libxcb-render-util0, libxcb-icccm4, libxcb-xinerama0, libxcb-xkb1, libxcb-randr0, libxcb-shape0, libxcb-render0, libxcb-shm0, libxcb-sync1, libxcb-xfixes0, hicolor-icon-theme
+Depends: libc6 (>= @GLIBC@), libgcc-s1, libstdc++6, zlib1g, libudev1, libgl1, libegl1, libdbus-1-3, libfontconfig1, libfreetype6, libx11-6, libxext6, libxrender1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libxcb-cursor0, libxcb-image0, libxcb-keysyms1, libxcb-render-util0, libxcb-icccm4, libxcb-xinerama0, libxcb-xkb1, libxcb-randr0, libxcb-shape0, libxcb-render0, libxcb-shm0, libxcb-sync1, libxcb-xfixes0, hicolor-icon-theme, pulseaudio-utils
 Description: RGB lighting and display controls for the Royal Kludge RK-S98
  Independent, experimental wired USB configurator with a Qt desktop interface.
  Bundles Python and Qt. Direct hardware writes may damage the device.

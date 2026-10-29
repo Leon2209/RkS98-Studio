@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rks98-control"
-version = "0.1.0"
+version = "0.1.1"
 description = "Linux RGB lighting and display controls for the Royal Kludge RK-S98"
 readme = "README.md"
 license = "MIT"

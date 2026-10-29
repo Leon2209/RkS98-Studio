@@ -5,6 +5,7 @@ import threading
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
+from importlib.metadata import version
 from importlib.resources import files
 from pathlib import Path
 
@@ -41,6 +42,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .audio import VolumeMonitor
+from .background import ServiceState, UserVolumeService
 from .device import DeviceError, HidTransport, Keyboard, discover
 from .display import FILE_FILTER, Animation, Crop, crop_frame, fit_frame, load_animation, rgb565
 from .protocol import (
@@ -318,6 +321,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(STYLE)
         self.job: Job | None = None
         self.background_read = False
+        self.background_write = False
         self.edit_revision = 0
         self.pending_actions: deque[Callable[[], None]] = deque()
         self.devices: list[Keyboard] = []
@@ -329,6 +333,13 @@ class MainWindow(QMainWindow):
         self.saved_colors: bytes | None = None
         self.color = QColor("#0084ff")
         self.last_lighting: Lighting | None = None
+        self.desktop_volume: int | None = None
+        self.volume_keyboard: bytes | None = None
+        self.volume_attempt: tuple[bytes, int] | None = None
+        self.closing = False
+        self.user_volume_service = UserVolumeService()
+        self.service_ready = False
+        self.service_state = ServiceState(False, False)
 
         root = QWidget()
         root.setObjectName("root")
@@ -476,11 +487,62 @@ class MainWindow(QMainWindow):
         display_layout.addWidget(clock_card, 2)
         display_layout.addWidget(self._screen_card(), 3)
         tabs.addTab(display_page, "Display")
+        settings_page = QWidget()
+        settings_layout = QVBoxLayout(settings_page)
+        settings_layout.setContentsMargins(0, 18, 0, 0)
+        settings_card, settings_fields = self._card()
+        settings_fields.addWidget(label("Settings", "sectionTitle"))
+        self.volume_sync = QCheckBox("Sync desktop volume to keyboard")
+        self.volume_sync.setChecked(self.settings.value("volumeSync/enabled", True, type=bool))
+        self.volume_sync.toggled.connect(self._volume_sync_toggled)
+        settings_fields.addWidget(self.volume_sync)
+        settings_fields.addWidget(
+            label(
+                "Follow desktop volume and output-device changes while the app is open. "
+                "Each update also syncs the keyboard clock.",
+                "muted",
+                True,
+            )
+        )
+        self.volume_status = label(
+            "Waiting for desktop volume..." if self.volume_sync.isChecked() else "Volume sync off.",
+            "muted",
+            True,
+        )
+        settings_fields.addWidget(self.volume_status)
+        self.background_sync = QCheckBox("Sync volume in the background and start at login")
+        self.background_sync.setEnabled(False)
+        self.background_sync.toggled.connect(self._background_sync_toggled)
+        settings_fields.addWidget(self.background_sync)
+        settings_fields.addWidget(
+            label(
+                "Optional user service: sends volume and clock updates even with the app closed. "
+                "Pauses while this app is open. Uses the same direct hardware writes.",
+                "muted",
+                True,
+            )
+        )
+        self.background_status = label("Checking background service...", "muted", True)
+        settings_fields.addWidget(self.background_status)
+        settings_fields.addStretch()
+        self.application_version = label(f"Version {version('rks98-control')}", "muted")
+        settings_fields.addWidget(self.application_version)
+        settings_layout.addWidget(settings_card)
+        tabs.addTab(settings_page, "Settings")
+
+        def tab_changed(index: int) -> None:
+            if tabs.widget(index) is settings_page:
+                self._refresh_background_service()
+
+        tabs.currentChanged.connect(tab_changed)
         layout.addWidget(tabs, 1)
 
         self.status = label("", "status", True)
         self.status.hide()
         layout.addWidget(self.status)
+        self.volume_monitor = VolumeMonitor(self)
+        self.volume_monitor.changed.connect(self._volume_changed)
+        self.volume_monitor.failed.connect(self._volume_failed)
         self.loading = False
         self.firmware_versions: dict[bytes, str] = {}
         self._show_color()
@@ -494,6 +556,8 @@ class MainWindow(QMainWindow):
         self.clock_timer.start(1000)
         self._update_clock()
         QTimer.singleShot(0, self.scan)
+        QTimer.singleShot(0, self._start_volume_monitor)
+        QTimer.singleShot(0, self._refresh_background_service)
 
     def _screen_card(self) -> QFrame:
         card, layout = self._card()
@@ -611,16 +675,18 @@ class MainWindow(QMainWindow):
         self.dirty = False
         self.last_lighting = None
         self.saved_colors = None
+        self._volume_connection_changed()
         self._update_enabled()
         self.read_lighting()
 
     def _update_enabled(self) -> None:
-        busy = self.job is not None and not self.background_read
+        busy = self.job is not None and not (self.background_read or self.background_write)
         keyboard = self._keyboard()
         connected = keyboard is not None and keyboard.supported
         ready = connected and self.loaded and not busy
         self.refresh.setEnabled(not busy and not self.dirty)
         self.device_selector.setEnabled(not busy and not self.dirty)
+        self.background_sync.setEnabled(self.service_ready and self.job is None)
         self.effect.setEnabled(ready)
         self.apply_button.setEnabled(ready and self.dirty)
         self.revert_button.setEnabled(not busy and self.dirty)
@@ -672,17 +738,21 @@ class MainWindow(QMainWindow):
         callback: Callable,
         *,
         background: bool = False,
+        quiet: bool = False,
+        failed: Callable[[str], None] | None = None,
     ) -> None:
         if self.job is not None:
             return
         job = Job(action, self)
         self.job = job
         self.background_read = background
+        self.background_write = quiet
         job.succeeded.connect(callback)
-        job.failed.connect(self._error)
+        job.failed.connect(failed or self._error)
         job.finished.connect(self._finished)
-        if not background:
-            self._clear_error()
+        if not (background or quiet):
+            if failed is None:
+                self._clear_error()
             self._update_enabled()
         job.start()
 
@@ -692,20 +762,23 @@ class MainWindow(QMainWindow):
             self.upload_bar.hide()
             self.cancel_upload.hide()
             self.upload_button.show()
-        background = self.background_read
+        background = self.background_read or self.background_write
         if self.job is not None:
             self.job.deleteLater()
             self.job = None
         self.background_read = False
+        self.background_write = False
         if not background:
             self._update_enabled()
         while self.job is None and self.pending_actions:
             self.pending_actions.popleft()()
+        self._sync_pending_volume()
+        self.background_sync.setEnabled(self.service_ready and self.job is None)
 
     def _wait_for_read(self, action: Callable[[], None]) -> bool:
         if self.job is None:
             return False
-        if self.background_read and action not in self.pending_actions:
+        if (self.background_read or self.background_write) and action not in self.pending_actions:
             self.pending_actions.append(action)
         return True
 
@@ -781,6 +854,151 @@ class MainWindow(QMainWindow):
             self._update_enabled()
         else:
             self._lighting_read(lighting)
+        self._volume_connection_changed()
+
+    def _start_volume_monitor(self) -> None:
+        if not self.closing and self.volume_sync.isChecked():
+            self.volume_monitor.start()
+
+    def _refresh_background_service(self, error: str = "") -> None:
+        if self.job is not None:
+            self.pending_actions.append(lambda: self._refresh_background_service(error))
+            return
+
+        def loaded(state: ServiceState) -> None:
+            self.service_state = state
+            self.service_ready = True
+            self.background_sync.blockSignals(True)
+            self.background_sync.setChecked(state.enabled or state.active)
+            self.background_sync.blockSignals(False)
+            self.background_status.setText(error or state.text)
+
+        def failed(text: str) -> None:
+            self.service_ready = False
+            self.background_status.setText(f"Background service unavailable: {text}")
+
+        self._start(self.user_volume_service.state, loaded, quiet=True, failed=failed)
+
+    def _background_sync_toggled(self, enabled: bool) -> None:
+        if enabled:
+            answer = QMessageBox.question(
+                self,
+                "Enable background hardware writes?",
+                "Enable volume and clock synchronization at login and while this app is closed?\n\n"
+                "The service writes directly to the keyboard. Hardware risk remains the same. "
+                "It pauses while this app is open; the app's volume checkbox controls that time.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self.background_sync.blockSignals(True)
+                self.background_sync.setChecked(
+                    self.service_state.enabled or self.service_state.active
+                )
+                self.background_sync.blockSignals(False)
+                return
+        self.background_sync.setEnabled(False)
+
+        def action() -> None:
+            self._set_background_service(enabled)
+
+        if self._wait_for_read(action):
+            return
+        self._set_background_service(enabled)
+
+    def _set_background_service(self, enabled: bool) -> None:
+        self.service_ready = False
+
+        def loaded(state: ServiceState) -> None:
+            self.service_state = state
+            self.service_ready = True
+            self.background_status.setText(state.text)
+
+        def failed(text: str) -> None:
+            self.background_status.setText(f"Background service change failed: {text}")
+            self.pending_actions.append(
+                lambda: self._refresh_background_service(
+                    f"Background service change failed: {text}"
+                )
+            )
+
+        self._start(
+            lambda: self.user_volume_service.set_enabled(enabled),
+            loaded,
+            failed=failed,
+        )
+
+    def _volume_sync_toggled(self, enabled: bool) -> None:
+        self.settings.setValue("volumeSync/enabled", enabled)
+        self.settings.sync()
+        if self.settings.status() != self.settings.Status.NoError:
+            logger.error("Could not save volume sync preference")
+            self._show_error("Could not save the volume sync preference.")
+        self.volume_monitor.stop()
+        self.desktop_volume = None
+        self.volume_attempt = None
+        self.volume_status.setText(
+            "Waiting for desktop volume..." if enabled else "Volume sync off."
+        )
+        if enabled:
+            self._start_volume_monitor()
+
+    def _volume_connection_changed(self) -> None:
+        keyboard = self._keyboard()
+        path = keyboard.path if keyboard is not None and keyboard.supported else None
+        if path != self.volume_keyboard:
+            self.volume_keyboard = path
+            self.volume_attempt = None
+            self.desktop_volume = None
+            if path is not None and self.volume_sync.isChecked():
+                self.volume_monitor.request_volume()
+
+    def _volume_changed(self, volume: int) -> None:
+        if not self.volume_sync.isChecked():
+            return
+        self.desktop_volume = volume
+        self._sync_pending_volume()
+
+    def _volume_failed(self, text: str) -> None:
+        if not self.volume_sync.isChecked():
+            return
+        self.desktop_volume = None
+        self.volume_status.setText(text)
+
+    def _sync_pending_volume(self) -> None:
+        if (
+            self.closing
+            or not self.volume_sync.isChecked()
+            or self.job is not None
+            or self.desktop_volume is None
+        ):
+            return
+        keyboard = self._keyboard()
+        if keyboard is None or not keyboard.supported or not self.loaded:
+            return
+        attempt = (keyboard.path, self.desktop_volume)
+        if attempt == self.volume_attempt:
+            return
+        self.volume_attempt = attempt
+
+        def send() -> str:
+            with HidTransport(keyboard) as transport:
+                return Controller(transport).sync_volume(attempt[1])
+
+        def sent(_result: str) -> None:
+            if self.volume_sync.isChecked() and self.desktop_volume is not None:
+                self.volume_status.setText(f"Volume sent: {attempt[1]}% (no hardware readback).")
+
+        def failed(text: str) -> None:
+            if self.volume_sync.isChecked():
+                self.volume_status.setText(f"Volume sync failed: {text}")
+
+        self._start(
+            send,
+            sent,
+            quiet=True,
+            failed=failed,
+        )
 
     def _operation(self, action: Callable[[Controller], object], callback: Callable) -> None:
         keyboard = self._keyboard()
@@ -957,8 +1175,11 @@ class MainWindow(QMainWindow):
     def sync_clock(self) -> None:
         if self._wait_for_read(self.sync_clock):
             return
+        volume = self.desktop_volume
         self._operation(
-            lambda controller: controller.sync_clock(),
+            lambda controller: (
+                controller.sync_volume(volume) if volume is not None else controller.sync_clock()
+            ),
             lambda _result: None,
         )
 
@@ -1101,7 +1322,7 @@ class MainWindow(QMainWindow):
         enabled = (
             self.loaded
             and self.effect.currentData() != 0
-            and (self.job is None or self.background_read)
+            and (self.job is None or self.background_read or self.background_write)
         )
         self.brightness.setEnabled(enabled)
         self.brightness_slider.setEnabled(enabled)
@@ -1151,6 +1372,8 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.poll_timer.stop()
+        self.closing = True
+        self.volume_monitor.stop()
         self.clock_timer.stop()
         self.preview_timer.stop()
         self.settings.setValue("windowGeometry", self.saveGeometry())

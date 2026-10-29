@@ -37,6 +37,7 @@ def test_arch_kit_contains_verified_native_payload(tmp_path):
     recipe = (tmp_path / "arch-kit/PKGBUILD").read_text()
     assert f"sha256sums=('{builder.sha256(archive)}')" in recipe
     assert "@GLIBC@" not in recipe and "@VERSION@" not in recipe
+    assert "'libpulse'" in recipe
     with tarfile.open(archive) as stream:
         for member in stream.getmembers():
             assert member.uid == member.gid == 0
@@ -79,6 +80,7 @@ def test_debian_control_and_permissions(tmp_path, monkeypatch):
     assert "Version: 0.1.0-6\n" in control
     assert "Architecture: amd64\n" in control
     assert "Depends: libc6 (>= " in control and "@" not in control
+    assert "pulseaudio-utils" in control
     assert calls[0][:3] == ["dpkg-deb", "--root-owner-group", "-Zgzip"]
     assert (tmp_path / "debian/opt").stat().st_mode & 0o055 == 0o055
     assert (tmp_path / f"{deb.name}.sha256").read_text().startswith(builder.sha256(deb))

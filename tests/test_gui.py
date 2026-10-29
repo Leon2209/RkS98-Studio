@@ -1,6 +1,7 @@
 import os
 import time
 from dataclasses import replace
+from importlib.metadata import version
 from threading import Event
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -8,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtCore import QEvent, QObject, QSettings, QThread
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QColorDialog, QLabel, QScrollArea
+from PySide6.QtWidgets import QApplication, QColorDialog, QLabel, QScrollArea, QTabWidget
 
 from rks98 import gui
 from rks98.device import Keyboard
@@ -69,9 +70,47 @@ def backend(monkeypatch):
         error = None
         version = "2117"
         version_reads = 0
+        background_state = gui.ServiceState(False, False)
+        service_changes = []
+        service_error = None
 
     backend = Backend()
     monkeypatch.setattr(gui, "discover", lambda: backend.devices)
+
+    class UserVolumeService:
+        def state(self):
+            return backend.background_state
+
+        def set_enabled(self, enabled):
+            backend.service_changes.append(enabled)
+            if backend.service_error:
+                raise RuntimeError(backend.service_error)
+            backend.background_state = gui.ServiceState(enabled, enabled)
+            return backend.background_state
+
+    monkeypatch.setattr(gui, "UserVolumeService", UserVolumeService)
+
+    class VolumeMonitor(QObject):
+        changed = gui.Signal(int)
+        failed = gui.Signal(str)
+
+        def __init__(self, parent):
+            super().__init__(parent)
+            self.stopped = False
+            self.requests = 0
+            self.starts = 0
+
+        def start(self):
+            self.stopped = False
+            self.starts += 1
+
+        def stop(self):
+            self.stopped = True
+
+        def request_volume(self):
+            self.requests += 1
+
+    monkeypatch.setattr(gui, "VolumeMonitor", VolumeMonitor)
 
     class Transport:
         def __init__(self, keyboard):
@@ -126,6 +165,10 @@ def backend(monkeypatch):
             backend.writes.append(("clock",))
             return "Clock packet sent."
 
+        def sync_volume(self, volume):
+            backend.writes.append(("volume", volume, QThread.currentThread()))
+            return "Volume/time packet sent."
+
     monkeypatch.setattr(gui, "HidTransport", Transport)
     monkeypatch.setattr(gui, "Controller", Controller)
     return backend
@@ -164,6 +207,302 @@ def test_startup_reads_settings_without_configuration_writes(app, window, backen
     assert not window.apply_button.isEnabled()
     assert window.poll_timer.isActive()
     assert window.poll_timer.interval() == 5000
+
+
+def test_volume_sync_on_connection_and_events_preserves_edits(app, window, backend):
+    assert window.volume_monitor.requests == 1
+    window.brightness.setValue(16)
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    assert backend.writes == [("volume", 65, backend.writes[0][2])]
+    assert backend.writes[0][2] != app.thread()
+    assert window.dirty and window.brightness.value() == 16
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    assert len(backend.writes) == 1
+    window.volume_monitor.changed.emit(40)
+    wait_for_job(app, window)
+    assert [write[:2] for write in backend.writes] == [("volume", 65), ("volume", 40)]
+
+
+def test_volume_events_coalesce_while_usb_busy(app, window, backend):
+    window._start(lambda: time.sleep(0.03), lambda _: None)
+    for volume in (10, 20, 30):
+        window.volume_monitor.changed.emit(volume)
+    assert not backend.writes
+    wait_for_job(app, window)
+    assert [write[:2] for write in backend.writes] == [("volume", 30)]
+
+
+def test_volume_sync_waits_for_read(app, window, backend, pending_poll):
+    window.volume_monitor.changed.emit(65)
+    assert not backend.writes
+    pending_poll.set()
+    wait_for_job(app, window)
+    assert [write[:2] for write in backend.writes] == [("volume", 65)]
+
+
+def test_volume_sync_reconnect_requests_fresh_volume(app, window, backend):
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    devices = backend.devices
+    backend.devices = []
+    window._poll()
+    wait_for_job(app, window)
+    window.volume_monitor.changed.emit(30)
+    assert len(backend.writes) == 1
+    backend.devices = devices
+    window._poll()
+    wait_for_job(app, window)
+    assert len(backend.writes) == 1
+    assert window.volume_monitor.requests == 2
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    assert len(backend.writes) == 2
+
+
+def test_volume_failure_is_visible_without_retries_or_discarding_edits(app, window, backend):
+    window.brightness.setValue(16)
+    backend.error = "USB unavailable"
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    assert "USB unavailable" in window.volume_status.text()
+    assert window.loaded and window.dirty
+    backend.error = None
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    assert not backend.writes
+    window.volume_monitor.failed.emit("Audio server disconnected")
+    window._clear_error()
+    assert window.volume_status.text() == "Audio server disconnected"
+    assert window.desktop_volume is None
+
+
+def test_clock_sync_includes_known_volume(app, window, backend):
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    window.clock_button.click()
+    wait_for_job(app, window)
+    assert [write[:2] for write in backend.writes] == [("volume", 65), ("volume", 65)]
+
+
+def test_audio_failure_during_volume_write_remains_visible(app, window, backend, monkeypatch):
+    started, release = Event(), Event()
+    sync = gui.Controller.sync_volume
+
+    def blocked_sync(controller, volume):
+        started.set()
+        if not release.wait(5):
+            raise TimeoutError("Test did not release volume write")
+        return sync(controller, volume)
+
+    monkeypatch.setattr(gui.Controller, "sync_volume", blocked_sync)
+    window.volume_monitor.changed.emit(65)
+    try:
+        assert started.wait(2)
+        window.volume_monitor.failed.emit("Audio server disconnected")
+    finally:
+        release.set()
+        wait_for_job(app, window)
+    assert window.volume_status.text() == "Audio server disconnected"
+
+
+def test_volume_sync_preserves_existing_lighting_error(app, window):
+    window._show_error("Saved color history is invalid")
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    assert window.status.text() == "Saved color history is invalid"
+
+
+def test_close_stops_volume_monitor(app, window):
+    assert window.close()
+    assert window.volume_monitor.stopped
+
+
+def test_background_service_is_off_by_default_and_changes_only_on_request(
+    app, window, backend, monkeypatch
+):
+    assert not window.background_sync.isChecked()
+    assert window.background_sync.isEnabled()
+    assert not backend.service_changes
+    monkeypatch.setattr(gui.QMessageBox, "question", lambda *_: gui.QMessageBox.StandardButton.Yes)
+    window.background_sync.setChecked(True)
+    wait_for_job(app, window)
+    assert backend.service_changes == [True]
+    assert "enabled" in window.background_status.text()
+    assert window.background_sync.isEnabled()
+    window.background_sync.setChecked(False)
+    wait_for_job(app, window)
+    assert backend.service_changes == [True, False]
+    assert window.background_status.text() == "Background service off."
+
+
+def test_background_service_declined_confirmation_makes_no_changes(window, backend, monkeypatch):
+    monkeypatch.setattr(gui.QMessageBox, "question", lambda *_: gui.QMessageBox.StandardButton.No)
+    window.background_sync.setChecked(True)
+    assert not window.background_sync.isChecked()
+    assert not backend.service_changes
+
+
+def test_background_service_failure_refreshes_actual_state(app, window, backend, monkeypatch):
+    backend.service_error = "User manager unavailable"
+    monkeypatch.setattr(gui.QMessageBox, "question", lambda *_: gui.QMessageBox.StandardButton.Yes)
+    window.background_sync.setChecked(True)
+    wait_for_job(app, window)
+    assert "User manager unavailable" in window.background_status.text()
+    assert not window.background_sync.isChecked()
+    assert window.background_sync.isEnabled()
+
+
+def test_background_service_setting_is_independent_of_in_app_volume(app, window, backend):
+    window.service_state = gui.ServiceState(True, True)
+    window.background_sync.blockSignals(True)
+    window.background_sync.setChecked(True)
+    window.background_sync.blockSignals(False)
+    window.volume_sync.setChecked(False)
+    wait_for_job(app, window)
+    assert not backend.service_changes
+    assert window.background_sync.isChecked()
+
+
+def test_settings_refreshes_external_service_state_without_changing_it(app, window, backend):
+    backend.background_state = gui.ServiceState(True, False)
+    tabs = window.findChild(gui.QTabWidget)
+    tabs.setCurrentIndex(2)
+    wait_for_job(app, window)
+    assert window.background_sync.isChecked()
+    assert "not running" in window.background_status.text()
+    assert not backend.service_changes
+
+
+def test_settings_tab_contains_volume_controls_and_application_version(window):
+    tabs = window.findChild(QTabWidget)
+    assert [tabs.tabText(index) for index in range(tabs.count())] == [
+        "Lighting",
+        "Display",
+        "Settings",
+    ]
+    settings_page = tabs.widget(2)
+    assert settings_page.isAncestorOf(window.volume_sync)
+    assert settings_page.isAncestorOf(window.volume_status)
+    assert settings_page.isAncestorOf(window.application_version)
+    assert window.application_version.text() == f"Version {version('rks98-control')}"
+    assert window.volume_sync.isChecked()
+    assert window.volume_monitor.starts == 1
+
+
+def test_volume_sync_toggle_stops_updates_and_persists(app, window, backend):
+    window.volume_sync.setChecked(False)
+    assert window.volume_monitor.stopped
+    assert not window.settings.value("volumeSync/enabled", True, type=bool)
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    assert not backend.writes
+    assert window.volume_status.text() == "Volume sync off."
+    window.volume_sync.setChecked(True)
+    assert window.volume_monitor.starts == 2
+    assert window.settings.value("volumeSync/enabled", False, type=bool)
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    assert [write[:2] for write in backend.writes] == [("volume", 65)]
+
+
+def test_saved_disabled_volume_sync_does_not_start_monitor(app, backend, monkeypatch, tmp_path):
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    settings.setValue("volumeSync/enabled", False)
+    monkeypatch.setattr(gui, "QSettings", lambda *_: settings)
+    window = gui.MainWindow()
+    try:
+        window.show()
+        wait_for_job(app, window)
+        assert not window.volume_sync.isChecked()
+        assert window.volume_monitor.starts == 0
+        assert window.volume_monitor.requests == 0
+        assert not backend.writes
+    finally:
+        wait_for_job(app, window)
+        window.close()
+
+
+def test_disable_volume_sync_drops_pending_write(app, window, backend):
+    window._start(lambda: time.sleep(0.03), lambda _: None)
+    window.volume_monitor.changed.emit(65)
+    window.volume_sync.setChecked(False)
+    wait_for_job(app, window)
+    assert not backend.writes
+
+
+def test_volume_write_completion_does_not_change_lighting_pixels(app, window):
+    before = window.grab().toImage()
+    window.volume_monitor.changed.emit(65)
+    wait_for_job(app, window)
+    assert window.grab().toImage() == before
+
+
+def test_disable_during_volume_write_keeps_disabled_status(app, window, monkeypatch):
+    started, release = Event(), Event()
+    sync = gui.Controller.sync_volume
+
+    def blocked_sync(controller, volume):
+        started.set()
+        if not release.wait(5):
+            raise TimeoutError("Test did not release volume write")
+        return sync(controller, volume)
+
+    monkeypatch.setattr(gui.Controller, "sync_volume", blocked_sync)
+    window.volume_monitor.changed.emit(65)
+    try:
+        assert started.wait(2)
+        window.volume_sync.setChecked(False)
+    finally:
+        release.set()
+        wait_for_job(app, window)
+    assert window.volume_status.text() == "Volume sync off."
+    assert window.desktop_volume is None
+
+
+def test_volume_write_does_not_blink_lighting_ui_and_queues_user_action(
+    app, window, backend, monkeypatch
+):
+    started, release = Event(), Event()
+    sync = gui.Controller.sync_volume
+
+    def blocked_sync(controller, volume):
+        started.set()
+        if not release.wait(5):
+            raise TimeoutError("Test did not release volume write")
+        return sync(controller, volume)
+
+    class Watch(QObject):
+        def __init__(self):
+            super().__init__()
+            self.changes = []
+
+        def eventFilter(self, watched, event):
+            if event.type() == QEvent.Type.EnabledChange:
+                self.changes.append(watched)
+            return False
+
+    watcher = Watch()
+    for widget in window.findChildren(gui.QWidget):
+        widget.installEventFilter(watcher)
+    monkeypatch.setattr(gui.Controller, "sync_volume", blocked_sync)
+    before = window.grab().toImage()
+    window.volume_monitor.changed.emit(65)
+    try:
+        assert started.wait(2)
+        app.processEvents()
+        assert window.effect.isEnabled()
+        assert window.clock_button.isEnabled()
+        assert window.grab().toImage() == before
+        assert not watcher.changes
+        window.clock_button.click()
+        assert len(window.pending_actions) == 1
+    finally:
+        release.set()
+        wait_for_job(app, window)
+    assert [write[:2] for write in backend.writes] == [("volume", 65), ("volume", 65)]
+    assert window.effect.isEnabled()
 
 
 def test_poll_updates_effect_and_palette_without_writing(app, window, backend):

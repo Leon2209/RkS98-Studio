@@ -9,14 +9,17 @@ Both install the bundled application in `/opt/rks98-studio`, a command at
 `/usr/bin/rks98`, a desktop launcher, icon, license notices, and a udev rule.
 Python and Qt are bundled; target systems do not need a matching Python ABI.
 There is no portable format or RPM package.
+Packages also require the system `pactl` utility (`pulseaudio-utils` on Debian,
+`libpulse` on Arch) for event-driven volume synchronization. The desktop audio
+server must provide PulseAudio or PipeWire's PulseAudio compatibility service.
 
 ## Install and uninstall
 
 Debian/Ubuntu/Mint:
 
 ```sh
-sha256sum -c rks98-studio_0.1.0-6_amd64.deb.sha256
-sudo apt install ./rks98-studio_0.1.0-6_amd64.deb
+sha256sum -c rks98-studio_0.1.1-6_amd64.deb.sha256
+sudo apt install ./rks98-studio_0.1.1-6_amd64.deb
 sudo udevadm control --reload-rules
 # To remove:
 sudo apt remove rks98-studio
@@ -26,7 +29,7 @@ Arch/CachyOS:
 
 ```sh
 sha256sum -c arch-package.sha256
-sudo pacman -U rks98-studio-0.1.0-6-x86_64.pkg.tar.zst
+sudo pacman -U rks98-studio-0.1.1-6-x86_64.pkg.tar.zst
 sudo udevadm control --reload-rules
 # To remove:
 sudo pacman -R rks98-studio
@@ -37,6 +40,10 @@ Do not run the app as root. Check the README hardware risk warning before use.
 If you previously installed the source udev rule in `/etc/udev/rules.d`, it
 takes precedence over the package's rule; avoid maintaining duplicate rules.
 Package removal does not erase your local QSettings history.
+If you enabled the optional background volume service, disable it in Settings
+or run `systemctl --user disable --now rks98-volume.service` before uninstalling.
+The user service is created only on explicit request, runs without root, and
+requires a systemd graphical user session. It is not enabled by package installation.
 
 ## Compatibility
 

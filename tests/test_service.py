@@ -102,6 +102,24 @@ def test_clock_reports_transfer_not_verified_success():
     assert not transport.requests
 
 
+def test_volume_sends_one_status_packet_without_configuration_writes():
+    transport = FakeTransport()
+    profile, colors = transport.profile, transport.colors
+    message = Controller(transport).sync_volume(65)
+    assert "no verified readback" in message
+    assert len(transport.writes) == 1
+    assert transport.writes[0][:11] == bytes.fromhex("09 0b 00 00 01 00 0e 00 41 00 00")
+    assert (transport.profile, transport.colors) == (profile, colors)
+    assert not transport.requests
+
+
+def test_invalid_volume_never_sends():
+    transport = FakeTransport()
+    with pytest.raises(ProtocolError):
+        Controller(transport).sync_volume(101)
+    assert not transport.writes
+
+
 @pytest.mark.parametrize("padding", [0, 93, 512])
 def test_rejected_color_table_allows_profile_only_updates(caplog, padding):
     caplog.set_level("DEBUG", logger="rks98.service")

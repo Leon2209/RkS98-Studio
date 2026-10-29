@@ -259,6 +259,13 @@ def clock_packet(now: datetime) -> bytes:
     return packet(0x0B, len(payload), payload=payload)
 
 
+def volume_packet(volume: int, now: datetime) -> bytes:
+    if type(volume) is not int or not 0 <= volume <= 100:
+        raise ProtocolError("Volume must be an integer percentage between 0 and 100.")
+    payload = bytes((volume, 0, 0)) + clock_packet(now)[11:19] + bytes(3)
+    return packet(0x0B, len(payload), payload=payload)
+
+
 DISPLAY_WIDTH = 320
 DISPLAY_HEIGHT = 172
 DISPLAY_FRAME_SIZE = DISPLAY_WIDTH * DISPLAY_HEIGHT * 2

@@ -32,6 +32,7 @@ from .protocol import (
     response_payload,
     update_lighting,
     version_packet,
+    volume_packet,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,6 +117,13 @@ class Controller:
         self.transport.send(clock_packet(now))
         return (
             f"Clock packet sent: {now:%Y-%m-%d %H:%M:%S %Z}. "
+            "This command has no verified readback; check the keyboard display."
+        )
+
+    def sync_volume(self, volume: int) -> str:
+        self.transport.send(volume_packet(volume, datetime.now().astimezone()))
+        return (
+            f"Volume/time packet sent: {volume}%. "
             "This command has no verified readback; check the keyboard display."
         )
 
