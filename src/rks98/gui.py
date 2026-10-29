@@ -74,6 +74,9 @@ QLabel#connection { color: #88e0b5; background: #1b322e; border-radius: 12px;
     padding: 6px 12px; font-weight: 600; }
 QLabel#connection[connected="false"] { color: #b5bdcc; background: #252b3a; }
 QFrame#card { background: #1a1f2d; border: 1px solid #2a3143; border-radius: 18px; }
+QFrame#settingOption { background: #202638; border: 1px solid #343e55; border-radius: 12px; }
+QLabel#settingHelp { color: #b5bdcc; }
+QLabel#settingStatus { color: #d3c3ff; }
 QScrollArea#controlsScroll, QWidget#fields { background: #1a1f2d; border: none; }
 QScrollBar:vertical { background: transparent; width: 7px; margin: 0; }
 QScrollBar::handle:vertical { background: #46516d; min-height: 24px; border-radius: 3px; }
@@ -492,38 +495,52 @@ class MainWindow(QMainWindow):
         settings_layout.setContentsMargins(0, 18, 0, 0)
         settings_card, settings_fields = self._card()
         settings_fields.addWidget(label("Settings", "sectionTitle"))
+        volume_option, volume_fields = self._card()
+        volume_option.setObjectName("settingOption")
+        volume_fields.setSpacing(4)
         self.volume_sync = QCheckBox("Sync desktop volume to keyboard")
         self.volume_sync.setChecked(self.settings.value("volumeSync/enabled", True, type=bool))
         self.volume_sync.toggled.connect(self._volume_sync_toggled)
-        settings_fields.addWidget(self.volume_sync)
-        settings_fields.addWidget(
+        volume_fields.addWidget(self.volume_sync)
+        volume_details = QVBoxLayout()
+        volume_details.setContentsMargins(28, 0, 0, 0)
+        volume_details.setSpacing(4)
+        volume_details.addWidget(
             label(
-                "Follow desktop volume and output-device changes while the app is open. "
-                "Each update also syncs the keyboard clock.",
-                "muted",
+                "Sync volume and clock while the app is open.",
+                "settingHelp",
                 True,
             )
         )
         self.volume_status = label(
             "Waiting for desktop volume..." if self.volume_sync.isChecked() else "Volume sync off.",
-            "muted",
+            "settingStatus",
             True,
         )
-        settings_fields.addWidget(self.volume_status)
+        volume_details.addWidget(self.volume_status)
+        volume_fields.addLayout(volume_details)
+        settings_fields.addWidget(volume_option)
+        background_option, background_fields = self._card()
+        background_option.setObjectName("settingOption")
+        background_fields.setSpacing(4)
         self.background_sync = QCheckBox("Sync volume in the background and start at login")
         self.background_sync.setEnabled(False)
         self.background_sync.toggled.connect(self._background_sync_toggled)
-        settings_fields.addWidget(self.background_sync)
-        settings_fields.addWidget(
+        background_fields.addWidget(self.background_sync)
+        background_details = QVBoxLayout()
+        background_details.setContentsMargins(28, 0, 0, 0)
+        background_details.setSpacing(4)
+        background_details.addWidget(
             label(
-                "Optional user service: sends volume and clock updates even with the app closed. "
-                "Pauses while this app is open. Uses the same direct hardware writes.",
-                "muted",
+                "Sync volume and clock with the app closed. Pauses while it is open.",
+                "settingHelp",
                 True,
             )
         )
-        self.background_status = label("Checking background service...", "muted", True)
-        settings_fields.addWidget(self.background_status)
+        self.background_status = label("Checking background service...", "settingStatus", True)
+        background_details.addWidget(self.background_status)
+        background_fields.addLayout(background_details)
+        settings_fields.addWidget(background_option)
         settings_fields.addStretch()
         self.application_version = label(f"Version {version('rks98-control')}", "muted")
         settings_fields.addWidget(self.application_version)
@@ -987,7 +1004,7 @@ class MainWindow(QMainWindow):
 
         def sent(_result: str) -> None:
             if self.volume_sync.isChecked() and self.desktop_volume is not None:
-                self.volume_status.setText(f"Volume sent: {attempt[1]}% (no hardware readback).")
+                self.volume_status.setText(f"Volume sent: {attempt[1]}%")
 
         def failed(text: str) -> None:
             if self.volume_sync.isChecked():

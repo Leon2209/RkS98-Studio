@@ -95,7 +95,7 @@ class ServiceState:
     @property
     def text(self) -> str:
         if self.enabled and self.active:
-            return "Background service enabled; pauses while this app is open."
+            return "Background service enabled."
         if self.enabled:
             return "Enabled at login, but not running. Check the user service journal."
         if self.active:

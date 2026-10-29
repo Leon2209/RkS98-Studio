@@ -391,6 +391,23 @@ def test_settings_tab_contains_volume_controls_and_application_version(window):
     assert window.volume_monitor.starts == 1
 
 
+def test_settings_options_group_their_own_help_and_status(window):
+    volume_option = window.volume_sync.parentWidget()
+    background_option = window.background_sync.parentWidget()
+    assert volume_option is not background_option
+    for option, status in (
+        (volume_option, window.volume_status),
+        (background_option, window.background_status),
+    ):
+        assert option.objectName() == "settingOption"
+        assert status.parentWidget() is option
+        assert status.objectName() == "settingStatus"
+        help_text = option.findChild(gui.QLabel, "settingHelp")
+        assert help_text is not None
+        assert len(help_text.text()) < 80
+        assert help_text.wordWrap()
+
+
 def test_volume_sync_toggle_stops_updates_and_persists(app, window, backend):
     window.volume_sync.setChecked(False)
     assert window.volume_monitor.stopped
