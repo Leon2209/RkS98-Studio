@@ -3,14 +3,33 @@ import importlib.util
 import os
 import subprocess
 import tarfile
+import tomllib
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("build_linux", ROOT / "packaging/build_linux.py")
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
+
+
+def test_qt_dependency_excludes_shutdown_regression_and_allows_release_baseline():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    qt = next(
+        requirement
+        for value in project["project"]["dependencies"]
+        if (requirement := Requirement(value)).name == "PySide6"
+    )
+    assert "6.8.3" in qt.specifier
+    assert "6.11.3" in qt.specifier
+    assert "6.12.0" not in qt.specifier
+    release = (ROOT / "packaging/native/requirements.txt").read_text()
+    pinned = next(
+        Requirement(line) for line in release.splitlines() if line.startswith("PySide6==")
+    )
+    assert all(spec.version in qt.specifier for spec in pinned.specifier)
 
 
 def payload(root):
