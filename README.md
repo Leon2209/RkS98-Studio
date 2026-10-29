@@ -17,6 +17,8 @@ This is independent experimental software, not an official Royal Kludge app.
 It has been tested on one wired RK-S98; other firmware versions may behave
 differently.
 
+![RK-S98 Studio lighting screen](docs/images/mainscreen.png)
+
 ## Features
 
 - Select lighting effects, brightness, speed, and built-in or custom colors.
